@@ -1,0 +1,9 @@
+name = "aihf-remote-gateway"
+main = "src/index.ts"
+compatibility_date = "2024-10-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+AIHF_PLATFORM_URL = "https://app.aihf.io"
+ALLOWED_ORIGINS = "http://localhost:3000"
+GATEWAY_NAME = "my-dev-gateway"
