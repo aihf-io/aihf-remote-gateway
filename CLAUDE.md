@@ -19,7 +19,7 @@ This is a developer-owned worker, not shared infrastructure. All files can be mo
 
 ## Design constraints
 
-- **Native** — manual routing only, per platform design principals
+- **No Hono** — manual routing only, per platform design principals
 - **No `any` types** — string-first security, explicit JSON parsing
 - **Stateless** — no KV, R2, D1 bindings. No credential caching. Entity tokens flow through on every request.
 - **Zero runtime deps** — only devDependencies for types and tooling

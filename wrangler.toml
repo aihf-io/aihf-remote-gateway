@@ -3,7 +3,12 @@ main = "src/index.ts"
 compatibility_date = "2024-10-01"
 compatibility_flags = ["nodejs_compat"]
 
+# Finding 5.10: ship fail-closed defaults. ALLOWED_ORIGINS is empty so an
+# unconfigured deployment allows NO origins (every /api/** request is rejected
+# with 403) until the deployer sets its own allowlist. Override these per
+# environment, e.g. `wrangler deploy --var ALLOWED_ORIGINS:https://your-app.com`
+# or in a [env.<name>.vars] block / dashboard secret.
 [vars]
 AIHF_PLATFORM_URL = "https://app.aihf.io"
-ALLOWED_ORIGINS = "http://localhost:3000"
-GATEWAY_NAME = "my-dev-gateway"
+ALLOWED_ORIGINS = ""
+GATEWAY_NAME = "unconfigured-remote-gateway"

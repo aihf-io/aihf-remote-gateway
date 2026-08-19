@@ -1,18 +1,13 @@
-import { Env } from './types';
+import { BASE_SECURITY_HEADERS } from './security-headers';
 
-const VERSION = '1.0.0';
-
-export function handleHealth(env: Env): Response {
+// Finding 5.5: return a minimal status to unauthenticated callers.
+// Gateway name, upstream URL and version are kept internal (reconnaissance material).
+export function handleHealth(): Response {
   return new Response(
-    JSON.stringify({
-      status: 'healthy',
-      gateway: env.GATEWAY_NAME,
-      platform: env.AIHF_PLATFORM_URL,
-      version: VERSION,
-    }),
+    JSON.stringify({ status: 'ok' }),
     {
       status: 200,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...BASE_SECURITY_HEADERS },
     },
   );
 }

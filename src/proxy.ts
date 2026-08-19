@@ -1,5 +1,6 @@
 import { Env, ProxyContext } from './types';
 import { addCorsHeaders } from './cors';
+import { BASE_SECURITY_HEADERS, stripServerHeaders } from './security-headers';
 
 const PASSTHROUGH_HEADERS = [
   'authorization',
@@ -8,6 +9,14 @@ const PASSTHROUGH_HEADERS = [
   'x-aihf-org-id',
   'accept',
 ];
+
+// Finding 5.11: reject oversized request bodies at the gateway (10 MB).
+// The edge (Cloudflare) enforces its own limit; this is a defensive ceiling.
+const MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024;
+
+// Trust headers the gateway sets itself — a client must never be able to
+// supply them (finding 5.4).
+const GATEWAY_TRUST_HEADERS = ['x-aihf-remote-gateway', 'x-forwarded-for'];
 
 function buildUpstreamUrl(request: Request, platformUrl: string): string {
   const url = new URL(request.url);
@@ -32,7 +41,14 @@ function buildUpstreamHeaders(request: Request, ctx: ProxyContext): Headers {
     }
   }
 
-  // Add traceability headers
+  // Finding 5.4: the header set is built fresh, but strip the gateway trust
+  // headers explicitly so a client-supplied value can never reach the upstream
+  // — even if PASSTHROUGH_HEADERS is later widened.
+  for (const name of GATEWAY_TRUST_HEADERS) {
+    headers.delete(name);
+  }
+
+  // Add traceability headers (gateway-controlled, not client-controlled)
   headers.set('X-Forwarded-For', ctx.clientIp);
   headers.set('X-AIHF-Remote-Gateway', ctx.gatewayName);
 
@@ -46,6 +62,19 @@ export async function proxyRequest(
   origin: string,
 ): Promise<Response> {
   const upstreamUrl = buildUpstreamUrl(request, env.AIHF_PLATFORM_URL);
+
+  // Finding 5.11: reject oversized bodies before streaming upstream.
+  const contentLength = request.headers.get('content-length');
+  if (contentLength && Number(contentLength) > MAX_REQUEST_BODY_BYTES) {
+    return addCorsHeaders(
+      new Response(
+        JSON.stringify({ error: 'Request body too large', proxy_error: true }),
+        { status: 413, headers: { 'Content-Type': 'application/json', ...BASE_SECURITY_HEADERS } },
+      ),
+      origin,
+      env,
+    );
+  }
 
   const ctx: ProxyContext = {
     clientIp: request.headers.get('cf-connecting-ip') || '0.0.0.0',
@@ -64,11 +93,14 @@ export async function proxyRequest(
       redirect: 'manual',
     });
   } catch (err) {
+    // Finding 5.9: log the detail server-side, return a generic body so
+    // internal hostnames / DNS detail are not leaked to the client.
     const message = err instanceof Error ? err.message : 'Unknown upstream error';
+    console.error('Upstream connection failed:', message);
     return addCorsHeaders(
       new Response(
-        JSON.stringify({ error: `Upstream connection failed: ${message}`, proxy_error: true }),
-        { status: 502, headers: { 'Content-Type': 'application/json' } },
+        JSON.stringify({ error: 'Upstream connection failed', proxy_error: true }),
+        { status: 502, headers: { 'Content-Type': 'application/json', ...BASE_SECURITY_HEADERS } },
       ),
       origin,
       env,
@@ -76,7 +108,6 @@ export async function proxyRequest(
   }
 
   // For SSE / streaming responses, pass the ReadableStream body through directly
-  const contentType = upstreamResponse.headers.get('Content-Type') || '';
   const responseHeaders = new Headers(upstreamResponse.headers);
 
   // Strip upstream CORS headers — we set our own
@@ -84,6 +115,9 @@ export async function proxyRequest(
   responseHeaders.delete('Access-Control-Allow-Credentials');
   responseHeaders.delete('Access-Control-Allow-Methods');
   responseHeaders.delete('Access-Control-Allow-Headers');
+
+  // Finding 5.8: drop server-identifying headers from the upstream response.
+  stripServerHeaders(responseHeaders);
 
   const proxiedResponse = new Response(upstreamResponse.body, {
     status: upstreamResponse.status,

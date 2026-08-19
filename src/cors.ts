@@ -18,11 +18,18 @@ export function isOriginAllowed(origin: string | null, env: Env): boolean {
 
 export function addCorsHeaders(response: Response, origin: string, env: Env): Response {
   const headers = new Headers(response.headers);
-  headers.set('Access-Control-Allow-Origin', origin);
-  headers.set('Access-Control-Allow-Credentials', 'true');
-  headers.set('Access-Control-Allow-Methods', ALLOWED_METHODS);
-  headers.set('Access-Control-Allow-Headers', ALLOWED_HEADERS);
-  headers.set('Access-Control-Expose-Headers', 'X-AIHF-Request-Id');
+
+  // Finding 5.3: re-validate the origin here rather than trusting the caller.
+  // The credentialed CORS headers are only emitted for an allowlisted origin,
+  // so a future code path that forgets to validate first cannot leak an
+  // authenticated response cross-origin.
+  if (isOriginAllowed(origin, env)) {
+    headers.set('Access-Control-Allow-Origin', origin);
+    headers.set('Access-Control-Allow-Credentials', 'true');
+    headers.set('Access-Control-Allow-Methods', ALLOWED_METHODS);
+    headers.set('Access-Control-Allow-Headers', ALLOWED_HEADERS);
+    headers.set('Access-Control-Expose-Headers', 'X-AIHF-Request-Id');
+  }
 
   return new Response(response.body, {
     status: response.status,
@@ -31,7 +38,11 @@ export function addCorsHeaders(response: Response, origin: string, env: Env): Re
   });
 }
 
-export function handlePreflight(origin: string): Response {
+export function handlePreflight(origin: string, env: Env): Response {
+  // Defense-in-depth: only reflect the origin when it is allowlisted.
+  if (!isOriginAllowed(origin, env)) {
+    return new Response(null, { status: 403 });
+  }
   return new Response(null, {
     status: 204,
     headers: {

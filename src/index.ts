@@ -3,11 +3,12 @@ import { isOriginAllowed, handlePreflight, addCorsHeaders } from './cors';
 import { validateAuthToken, validateApiAuth } from './auth-validator';
 import { proxyRequest } from './proxy';
 import { handleHealth } from './health';
+import { BASE_SECURITY_HEADERS } from './security-headers';
 
 function jsonError(message: string, status: number, proxyError: boolean): Response {
   return new Response(
     JSON.stringify({ error: message, ...(proxyError ? { proxy_error: true } : {}) }),
-    { status, headers: { 'Content-Type': 'application/json' } },
+    { status, headers: { 'Content-Type': 'application/json', ...BASE_SECURITY_HEADERS } },
   );
 }
 
@@ -18,7 +19,7 @@ export default {
 
     // Health check — no CORS needed
     if (path === '/health' || path === '/') {
-      return handleHealth(env);
+      return handleHealth();
     }
 
     // Everything below requires origin validation
@@ -29,7 +30,7 @@ export default {
       if (!origin || !isOriginAllowed(origin, env)) {
         return jsonError('Origin not allowed', 403, true);
       }
-      return handlePreflight(origin);
+      return handlePreflight(origin, env);
     }
 
     // Only /api/** routes are proxied

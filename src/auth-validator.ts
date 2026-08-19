@@ -5,9 +5,29 @@ interface TokenBody {
   token?: unknown;
 }
 
-export async function validateAuthToken(request: Request): Promise<AuthCheckResult> {
+// Finding 5.6: match the content-type by media type, not a loose substring.
+function isJsonContentType(request: Request): boolean {
   const contentType = request.headers.get('Content-Type') || '';
-  if (!contentType.includes('application/json')) {
+  const mediaType = contentType.split(';')[0].trim().toLowerCase();
+  return mediaType === 'application/json';
+}
+
+// Finding 5.6: parse the cookie header by name rather than substring-matching,
+// so a cookie merely containing the string "AIHF_session" does not pass.
+function hasCookie(request: Request, name: string): boolean {
+  const cookie = request.headers.get('Cookie');
+  if (!cookie) return false;
+  return cookie.split(';').some((pair) => {
+    const eq = pair.indexOf('=');
+    if (eq === -1) return false;
+    const key = pair.slice(0, eq).trim();
+    const value = pair.slice(eq + 1).trim();
+    return key === name && value.length > 0;
+  });
+}
+
+export async function validateAuthToken(request: Request): Promise<AuthCheckResult> {
+  if (!isJsonContentType(request)) {
     return { valid: false, error: 'Content-Type must be application/json' };
   }
 
@@ -41,8 +61,7 @@ export function validateApiAuth(request: Request): AuthCheckResult {
     return { valid: false, error: 'Authorization header must be: Bearer <token>' };
   }
 
-  const cookie = request.headers.get('Cookie');
-  if (cookie && cookie.includes('AIHF_session')) {
+  if (hasCookie(request, 'AIHF_session')) {
     return { valid: true, authMode: 'cookie' };
   }
 
